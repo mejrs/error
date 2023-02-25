@@ -1,0 +1,10 @@
+[package]
+name = "error"
+version = "0.0.0"
+edition = "2021"
+
+[workspace]
+members = ["error_derive"]
+
+[dependencies]
+error_derive = { path = "error_derive" }
