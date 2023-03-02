@@ -4,16 +4,18 @@ use core::fmt;
 use core::ops::{ControlFlow, Try};
 
 pub trait Context<T, Src> {
+    #[track_caller]
     fn context<W: With<Src, Dst>, Dst>(self, ctx: W) -> Result<T, Dst>;
+    #[track_caller]
     fn with_context<W: With<Src, Dst>, Dst>(self, ctx: impl FnMut() -> W) -> Result<T, Dst>;
 }
 
 pub trait With<Src, Dst> {
+    #[track_caller]
     fn bind(self, residual: Src) -> Dst;
 }
 
 impl<T: Try> Context<T::Output, T::Residual> for T {
-    #[track_caller]
     fn context<W: With<T::Residual, Dst>, Dst>(self, ctx: W) -> Result<T::Output, Dst> {
         match self.branch() {
             ControlFlow::Continue(v) => Ok(v),
@@ -21,7 +23,6 @@ impl<T: Try> Context<T::Output, T::Residual> for T {
         }
     }
 
-    #[track_caller]
     fn with_context<W: With<T::Residual, Dst>, Dst>(
         self,
         mut ctx: impl FnMut() -> W,

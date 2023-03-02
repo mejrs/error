@@ -11,9 +11,9 @@ pub struct Sub<'tk> {
     pub enum_name: &'tk Ident,
     pub name: &'tk Ident,
     pub source: Option<&'tk Type>,
+    pub location: Option<&'tk Type>,
     pub selector_fields: Vec<&'tk Field>,
     pub selector_field_names: Vec<&'tk Ident>,
-    pub all_fields: Vec<&'tk Field>,
     pub all_field_names: Vec<&'tk Ident>,
     pub error_text: Vec<Text>,
     pub help_text: Vec<Text>,
@@ -33,7 +33,7 @@ impl Parse for Text {
         let s = lit.value();
 
         let sl = s.as_str();
-        let (out, args) = fmt_parse(sl).unwrap();
+        let (out, args) = fmt_parse(sl).expect("cannot parse format");
         Ok(Text {
             lit: proc_macro2::Literal::string(&out),
             args: args
@@ -44,13 +44,19 @@ impl Parse for Text {
                             .subspan((offset + 1)..(offset + x.len() + 1))
                             .unwrap_or(literal.span());
                         expr.set_span(span);
-                        quote::quote! { #expr }
+                        Ok(quote::quote! { #expr })
+                    } else if x == "" {
+                        let span = literal
+                            .subspan((offset)..(offset + 2))
+                            .unwrap_or(literal.span());
+                        Err(syn::Error::new(span, crate::errs::NO_FORMAT_ARG))
                     } else {
-                        let expr = syn::parse_str::<syn::Expr>(&x).unwrap();
-                        quote::quote! { #expr }
+                        let expr = syn::parse_str::<syn::Expr>(&x)
+                            .expect(&format!("cannot parse {x} as expr"));
+                        Ok(quote::quote! { #expr })
                     }
                 })
-                .collect(),
+                .collect::<Result<_, _>>()?,
         })
     }
 }
@@ -59,12 +65,12 @@ pub fn parse(input: &syn::DeriveInput) -> syn::Result<Vec<Sub<'_>>> {
     let syn::Data::Enum(data) = &input.data else {
         return Err(syn::Error::new(input.span(), crate::errs::ONLY_ENUM))
     };
-
     let enum_name = &input.ident;
 
     let mut out = Vec::new();
     for Pair::Punctuated(variant, _) | Pair::End(variant) in data.variants.pairs() {
         let mut source = None;
+        let mut location = None;
         let name = &variant.ident;
 
         let mut all_fields: Vec<&Field> = Vec::new();
@@ -76,7 +82,6 @@ pub fn parse(input: &syn::DeriveInput) -> syn::Result<Vec<Sub<'_>>> {
             if let syn::AttrStyle::Inner(_) = attr.style {
                 return Err(syn::Error::new(attr.span(), crate::errs::NO_INNER));
             }
-
             if attr.path.is_ident("error") {
                 let tokens: proc_macro::TokenStream = attr.tokens.clone().into();
                 error_text.push(syn::parse(tokens)?);
@@ -98,8 +103,28 @@ pub fn parse(input: &syn::DeriveInput) -> syn::Result<Vec<Sub<'_>>> {
                     let field = field.value();
 
                     if field.attrs.iter().any(|attr| attr.path.is_ident("source")) {
+                        if field.ident.as_ref().expect("tuple enum is not allowed") != "source" {
+                            return Err(syn::Error::new(
+                                field.ident.span(),
+                                crate::errs::MUST_BE_NAMED_SOURCE,
+                            ));
+                        }
                         if source.replace(&field.ty).is_some() {
                             return Err(syn::Error::new(field.span(), crate::errs::DUPE_SOURCE));
+                        }
+                    } else if field
+                        .attrs
+                        .iter()
+                        .any(|attr| attr.path.is_ident("location"))
+                    {
+                        if field.ident.as_ref().expect("tuple enum is not allowed") != "location" {
+                            return Err(syn::Error::new(
+                                field.ident.span(),
+                                crate::errs::MUST_BE_NAMED_LOCATION,
+                            ));
+                        }
+                        if location.replace(&field.ty).is_some() {
+                            return Err(syn::Error::new(field.span(), crate::errs::DUPE_LOCATION));
                         }
                     } else {
                         selector_fields.push(*field);
@@ -118,12 +143,12 @@ pub fn parse(input: &syn::DeriveInput) -> syn::Result<Vec<Sub<'_>>> {
 
         let all_field_names: Vec<&Ident> = all_fields
             .iter()
-            .map(|Field { ident, .. }| ident.as_ref().unwrap())
+            .map(|Field { ident, .. }| ident.as_ref().expect("cannot parse ident"))
             .collect();
 
         let selector_field_names: Vec<&Ident> = selector_fields
             .iter()
-            .map(|Field { ident, .. }| ident.as_ref().unwrap())
+            .map(|Field { ident, .. }| ident.as_ref().expect("cannot parse ident"))
             .collect();
 
         let variant = Sub {
@@ -132,10 +157,10 @@ pub fn parse(input: &syn::DeriveInput) -> syn::Result<Vec<Sub<'_>>> {
             source,
             selector_fields,
             selector_field_names,
-            all_fields,
             all_field_names,
             error_text,
             help_text,
+            location,
         };
 
         out.push(variant)
@@ -199,7 +224,10 @@ mod tests {
             out,
             "cannot open cache: encountered {} while looking for file {:?}"
         );
-        assert_eq!(&args, &["source", "file"]);
+        assert_eq!(
+            &args,
+            &[(String::from("source"), 32), (String::from("file"), 64)]
+        );
     }
 
     #[test]
@@ -211,7 +239,14 @@ mod tests {
             out,
             "Index {} Archive {}: Crc does not match: {} !=  {{crc2}}"
         );
-        assert_eq!(&args, &["index_id", "archive_id", "crc"]);
+        assert_eq!(
+            &args,
+            &[
+                (String::from("index_id"), 7),
+                (String::from("archive_id"), 26),
+                (String::from("crc"), 60)
+            ]
+        );
     }
 
     #[test]
@@ -223,6 +258,19 @@ mod tests {
             out,
             "Index {} Archive {}: Crc does not match: {{crc2}} != {}"
         );
-        assert_eq!(&args, &["index_id", "archive_id", "crc"]);
+        assert_eq!(
+            &args,
+            &[
+                (String::from("index_id"), 7),
+                (String::from("archive_id"), 26),
+                (String::from("crc"), 72)
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_nothing() {
+        let s = "whatever {}";
+        let (out, args) = fmt_parse(s).unwrap();
     }
 }

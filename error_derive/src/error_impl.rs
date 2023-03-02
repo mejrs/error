@@ -18,6 +18,7 @@ pub(crate) fn make_impl(e: &ErrorEnum<'_>) -> TokenStream2 {
             fn source(&self) -> ::core::option::Option<&(dyn ::core::error::Error + 'static)> {
                 match self {
                     #(#source_arms)*
+                    __unreachable => None,
                 }
             }
 
@@ -25,6 +26,7 @@ pub(crate) fn make_impl(e: &ErrorEnum<'_>) -> TokenStream2 {
                 #[allow(unused_variables)]
                 match self {
                     #(#provide_arms)*
+                    __unreachable => {}
                 }
             }
         }
