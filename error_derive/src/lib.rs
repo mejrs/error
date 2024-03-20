@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
-use quote::quote;
+use quote::{quote, quote_spanned};
 
 mod variant;
 use variant::Sub;
@@ -36,7 +36,7 @@ fn error_impl(input: syn::DeriveInput) -> TokenStream2 {
         is_top_level: input
             .attrs
             .iter()
-            .any(|attr| attr.path.is_ident("top_level")),
+            .any(|attr| attr.path().is_ident("top_level")),
         variants,
     };
 
@@ -93,8 +93,9 @@ fn make(v: &Sub<'_>) -> TokenStream2 {
         }
     };
 
+    let span = name.span();
     let subs = if selector_fields.is_empty() {
-        quote! {
+        quote_spanned! {span=>
             pub struct #name;
         }
     } else {
@@ -115,7 +116,7 @@ fn make(v: &Sub<'_>) -> TokenStream2 {
                 },
             )
             .collect();
-        quote! {
+        quote_spanned! {span=>
             pub struct #name {
                 #(#fields)*
             }

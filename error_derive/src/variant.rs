@@ -1,5 +1,6 @@
 use proc_macro2::Ident;
 use proc_macro2::TokenStream as TokenStream2;
+use quote::ToTokens;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
 use syn::punctuated::Pair;
@@ -39,10 +40,10 @@ impl Parse for Text {
             args: args
                 .into_iter()
                 .map(|(x, offset)| {
+                    let span = literal
+                        .subspan((offset + 1)..(offset + x.len() + 1))
+                        .unwrap_or(literal.span());
                     if let Ok(mut expr) = syn::parse_str::<syn::Ident>(&x) {
-                        let span = literal
-                            .subspan((offset + 1)..(offset + x.len() + 1))
-                            .unwrap_or(literal.span());
                         expr.set_span(span);
                         Ok(quote::quote! { #expr })
                     } else if x == "" {
@@ -53,7 +54,9 @@ impl Parse for Text {
                     } else {
                         let expr = syn::parse_str::<syn::Expr>(&x)
                             .expect(&format!("cannot parse {x} as expr"));
-                        Ok(quote::quote! { #expr })
+                        Ok(quote::quote_spanned! {span=>
+                            #expr
+                        })
                     }
                 })
                 .collect::<Result<_, _>>()?,
@@ -63,7 +66,7 @@ impl Parse for Text {
 
 pub fn parse(input: &syn::DeriveInput) -> syn::Result<Vec<Sub<'_>>> {
     let syn::Data::Enum(data) = &input.data else {
-        return Err(syn::Error::new(input.span(), crate::errs::ONLY_ENUM))
+        return Err(syn::Error::new(input.span(), crate::errs::ONLY_ENUM));
     };
     let enum_name = &input.ident;
 
@@ -82,12 +85,16 @@ pub fn parse(input: &syn::DeriveInput) -> syn::Result<Vec<Sub<'_>>> {
             if let syn::AttrStyle::Inner(_) = attr.style {
                 return Err(syn::Error::new(attr.span(), crate::errs::NO_INNER));
             }
-            if attr.path.is_ident("error") {
-                let tokens: proc_macro::TokenStream = attr.tokens.clone().into();
-                error_text.push(syn::parse(tokens)?);
-            } else if attr.path.is_ident("help") {
-                let tokens: proc_macro::TokenStream = attr.tokens.clone().into();
-                help_text.push(syn::parse(tokens)?);
+
+            if let syn::Meta::NameValue(syn::MetaNameValue { path, value, .. }) = &attr.meta {
+                // This could probably be nicer
+                let value = value.into_token_stream().into();
+
+                if path.is_ident("error") {
+                    error_text.push(syn::parse(value)?);
+                } else if path.is_ident("help") {
+                    help_text.push(syn::parse(value)?);
+                }
             }
         }
         if error_text.is_empty() {
@@ -102,7 +109,11 @@ pub fn parse(input: &syn::DeriveInput) -> syn::Result<Vec<Sub<'_>>> {
                 for field in named.pairs() {
                     let field = field.value();
 
-                    if field.attrs.iter().any(|attr| attr.path.is_ident("source")) {
+                    if field
+                        .attrs
+                        .iter()
+                        .any(|attr| attr.path().is_ident("source"))
+                    {
                         if field.ident.as_ref().expect("tuple enum is not allowed") != "source" {
                             return Err(syn::Error::new(
                                 field.ident.span(),
@@ -115,7 +126,7 @@ pub fn parse(input: &syn::DeriveInput) -> syn::Result<Vec<Sub<'_>>> {
                     } else if field
                         .attrs
                         .iter()
-                        .any(|attr| attr.path.is_ident("location"))
+                        .any(|attr| attr.path().is_ident("location"))
                     {
                         if field.ident.as_ref().expect("tuple enum is not allowed") != "location" {
                             return Err(syn::Error::new(
@@ -178,8 +189,8 @@ fn fmt_parse(s: &str) -> Result<(String, Vec<(String, usize)>), ()> {
     loop {
         let Some((prefix, suffix)) = sl.split_once("{") else {
             out.push_str(sl);
-            break
-         };
+            break;
+        };
         out.push_str(prefix);
         sl = suffix;
 

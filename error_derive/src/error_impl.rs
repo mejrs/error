@@ -22,7 +22,7 @@ pub(crate) fn make_impl(e: &ErrorEnum<'_>) -> TokenStream2 {
                 }
             }
 
-            fn provide<'a>(&'a self, demand: &mut ::core::any::Demand<'a>) {
+            fn provide<'a>(&'a self, request: &mut ::core::any::Request<'a>) {
                 #[allow(unused_variables)]
                 match self {
                     #(#provide_arms)*
@@ -71,7 +71,7 @@ fn make_provide_arm(v: &Sub<'_>) -> TokenStream2 {
             .collect();
         quote! {
             #enum_name :: #name { #(#all_field_names),* } => {
-                demand.provide_value_with::<::error::Help>(|| {
+                request.provide_value_with::<::error::Help>(|| {
                     use core::fmt::Write;
 
                     let mut msg = ::std::string::String::new();
