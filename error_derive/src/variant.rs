@@ -28,7 +28,6 @@ pub struct Text {
 
 impl Parse for Text {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        input.parse::<proc_macro2::Punct>()?;
         let literal: proc_macro2::Literal = input.fork().parse()?;
         let lit: syn::LitStr = input.parse()?;
         let s = lit.value();

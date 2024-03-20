@@ -22,7 +22,7 @@ pub(crate) fn make_impl(e: &ErrorEnum<'_>) -> TokenStream2 {
                 }
             }
 
-            fn provide<'a>(&'a self, request: &mut ::core::any::Request<'a>) {
+            fn provide<'a>(&'a self, request: &mut ::core::error::Request<'a>) {
                 #[allow(unused_variables)]
                 match self {
                     #(#provide_arms)*

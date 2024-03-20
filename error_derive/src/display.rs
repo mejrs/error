@@ -17,7 +17,7 @@ pub(crate) fn make_impl(e: &ErrorEnum<'_>) -> TokenStream2 {
         quote! {
             ::core::fmt::Display::fmt("\n", f)?;
             for error in (self as &dyn ::core::error::Error).sources() {
-                if let ::core::option::Option::Some(help) = error.request_value::<::error::Help>() {
+                if let ::core::option::Option::Some(help) = ::core::error::request_value::<::error::Help>(error) {
                     ::core::fmt::Display::fmt(&help, f)?;
                 }
             }
